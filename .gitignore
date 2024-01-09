@@ -4,3 +4,6 @@ lightning_logs/
 results/
 .vscode/
 *.egg-info/
+slurmfiles/
+figures/
+data/

@@ -14,13 +14,15 @@ from pytorch_lightning import Trainer
 class Encoder(nn.Module):
     def __init__(self, img_dim, latent_dim):
         super().__init__()
-        self.layers = nn.Sequential(nn.Linear(img_dim, 512),
-                                    nn.LeakyReLU(),
-                                    nn.Linear(512, 512),
-                                    nn.LeakyReLU(),
-                                    nn.Linear(512, 512),
-                                    nn.LeakyReLU(),
-                                    nn.Linear(512, latent_dim))
+        self.layers = nn.Sequential(
+            nn.Linear(img_dim, 512),
+            nn.LeakyReLU(),
+            nn.Linear(512, 512),
+            nn.LeakyReLU(),
+            nn.Linear(512, 512),
+            nn.LeakyReLU(),
+            nn.Linear(512, latent_dim),
+        )
 
     def forward(self, x):
         return self.layers(x)
@@ -38,7 +40,8 @@ class BiGANDiscriminator(nn.Module):
             nn.Linear(400, 400),
             nn.LeakyReLU(),
             nn.Linear(400, 1),
-            nn.Sigmoid())
+            nn.Sigmoid(),
+        )
 
     def forward(self, x, z):
         xz = torch.cat((x, z), dim=1)
@@ -46,7 +49,16 @@ class BiGANDiscriminator(nn.Module):
 
 
 class BiGAN(pl.LightningModule):
-    def __init__(self, latent_dim, img_dim, mi_estimator, lr, beta=0, device='cpu', dataset='gaussians'):
+    def __init__(
+        self,
+        latent_dim,
+        img_dim,
+        mi_estimator,
+        lr,
+        beta=0,
+        device="cpu",
+        dataset="gaussians",
+    ):
         super().__init__()
         self.device = device
         self.dataset = dataset
@@ -64,8 +76,14 @@ class BiGAN(pl.LightningModule):
         self.loss = nn.BCELoss()
 
     def configure_optimizers(self):
-        opt_g = torch.optim.Adam(itertools.chain(self.generator.parameters(
-        ), self.mi_estimator.parameters(), self.encoder.parameters()), lr=self.lr)
+        opt_g = torch.optim.Adam(
+            itertools.chain(
+                self.generator.parameters(),
+                self.mi_estimator.parameters(),
+                self.encoder.parameters(),
+            ),
+            lr=self.lr,
+        )
 
         opt_d = torch.optim.Adam(self.discriminator.parameters(), lr=self.lr)
 
@@ -78,7 +96,6 @@ class BiGAN(pl.LightningModule):
         return self.generator(z)
 
     def training_step(self, batch, batch_idx, optimizer_idx):
-
         x_real, _ = batch
 
         if len(x_real.shape) > 2:
@@ -95,41 +112,34 @@ class BiGAN(pl.LightningModule):
             # Generator
             self.generated = self.generator(self.z)
             generator_loss = self.loss(
-                self.discriminator(self.z, self.generated), valid)
+                self.discriminator(self.z, self.generated), valid
+            )
 
             # Encoder
             self.encoded = self.encoder(x_real)
-            encoder_loss = self.loss(
-                self.discriminator(self.encoded, x_real), fake)
+            encoder_loss = self.loss(self.discriminator(self.encoded, x_real), fake)
 
             # MI
             mi_loss = self.mi_estimator(x_real, self.encoded)
 
             loss = generator_loss + encoder_loss + self.beta * mi_loss
 
-            tqdm_dict = {
-                'g_loss': loss
-            }
+            tqdm_dict = {"g_loss": loss}
 
         # Discriminator
         if optimizer_idx == 1:
             discriminator_loss_real = self.loss(
-                self.discriminator(self.encoded.detach(), x_real), valid)
+                self.discriminator(self.encoded.detach(), x_real), valid
+            )
             discriminator_loss_fake = self.loss(
-                self.discriminator(self.z, self.generated.detach()), fake)
+                self.discriminator(self.z, self.generated.detach()), fake
+            )
 
-            loss = .5 * \
-                (discriminator_loss_fake + discriminator_loss_real)
+            loss = 0.5 * (discriminator_loss_fake + discriminator_loss_real)
 
-            tqdm_dict = {
-                'd_loss': loss
-            }
+            tqdm_dict = {"d_loss": loss}
 
-        output = {
-            'loss': loss,
-            'progress_bar': tqdm_dict,
-            'log': tqdm_dict
-        }
+        output = {"loss": loss, "progress_bar": tqdm_dict, "log": tqdm_dict}
 
         return output
 
@@ -143,12 +153,12 @@ class BiGAN(pl.LightningModule):
 
 
 def main(device):
-    dataset = 'gaussians'
+    dataset = "gaussians"
 
-    if dataset == 'gaussians':
+    if dataset == "gaussians":
         x_dim = 2
-    elif dataset == 'mnist':
-        x_dim = 28*28
+    elif dataset == "mnist":
+        x_dim = 28 * 28
 
     z_dim = 100
 
@@ -159,13 +169,20 @@ def main(device):
     statistics_network = T(x_dim, z_dim)
     mi_estimator = Mine(statistics_network)
 
-    model = BiGAN(latent_dim=z_dim, img_dim=x_dim,
-                  mi_estimator=mi_estimator, lr=lr, beta=beta, device=device, dataset=dataset)
+    model = BiGAN(
+        latent_dim=z_dim,
+        img_dim=x_dim,
+        mi_estimator=mi_estimator,
+        lr=lr,
+        beta=beta,
+        device=device,
+        dataset=dataset,
+    )
 
     trainer = Trainer(max_epochs=epochs, gpus=1, early_stop_callback=False)
     trainer.fit(model)
 
 
-if __name__ == '__main__':
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+if __name__ == "__main__":
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     main(device)

@@ -16,7 +16,9 @@ from mine.models.layers import ConcatLayer, CustomSequential
 
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
-import mine.utils
+import mine.utils.helpers as utils
+
+from tqdm.auto import tqdm
 
 torch.autograd.set_detect_anomaly(True)
 
@@ -49,6 +51,7 @@ def ema(mu, alpha, past_ema):
 
 def ema_loss(x, running_mean, alpha):
     t_exp = torch.exp(torch.logsumexp(x, 0) - math.log(x.shape[0])).detach()
+    print(running_mean)
     if running_mean == 0:
         running_mean = t_exp
     else:
@@ -61,12 +64,13 @@ def ema_loss(x, running_mean, alpha):
 
 
 class Mine(nn.Module):
-    def __init__(self, T, loss='mine', alpha=0.01, method=None):
+    def __init__(self, T, loss='mine', alpha=0.01, method=None, device=device):
         super().__init__()
         self.running_mean = 0
         self.loss = loss
         self.alpha = alpha
         self.method = method
+        self.device = device
 
         if method == 'concat':
             if isinstance(T, nn.Sequential):
@@ -74,11 +78,15 @@ class Mine(nn.Module):
             else:
                 self.T = CustomSequential(ConcatLayer(), T)
         else:
-            self.T = T
+            self.T = T.to(device)
 
     def forward(self, x, z, z_marg=None):
         if z_marg is None:
             z_marg = z[torch.randperm(x.shape[0])]
+
+        x = x.to(device)
+        z = z.to(device)
+        z_marg = z_marg.to(device)
 
         t = self.T(x, z).mean()
         t_marg = self.T(x, z_marg)
@@ -99,32 +107,36 @@ class Mine(nn.Module):
             x = torch.from_numpy(x).float()
         if isinstance(z, np.ndarray):
             z = torch.from_numpy(z).float()
-
+            
         with torch.no_grad():
             mi = -self.forward(x, z, z_marg)
         return mi
 
-    def optimize(self, X, Y, iters, batch_size, opt=None):
-
+    def optimize(self, X, Y, epochs, batch_size, lam, opt=None):
         if opt is None:
-            opt = torch.optim.Adam(self.parameters(), lr=1e-4)
-
-        for iter in range(1, iters + 1):
+            opt = torch.optim.AdamW(self.parameters(), lr=1e-4, weight_decay=lam)
+        loss_log = []
+        for epoch in (pbar := tqdm(range(1, epochs + 1))):
             mu_mi = 0
             for x, y in utils.batch(X, Y, batch_size):
+                x, y = x.to(self.device), y.to(self.device)
                 opt.zero_grad()
                 loss = self.forward(x, y)
+                loss_log.append(loss)
                 loss.backward()
                 opt.step()
 
                 mu_mi -= loss.item()
-            if iter % (iters // 3) == 0:
-                pass
-                #print(f"It {iter} - MI: {mu_mi / batch_size}")
+
+            pbar.set_description(f"epoch: {epoch}, mu_mi: {mu_mi:4f}")
+            
+            # if epoch % (epochs // 3) == 0:
+                # pass
+                # print(f"It {iter} - MI: {mu_mi / batch_size}")
 
         final_mi = self.mi(X, Y)
         print(f"Final MI: {final_mi}")
-        return final_mi
+        return final_mi, loss_log
 
 
 class T(nn.Module):
@@ -164,7 +176,7 @@ class MutualInformationEstimator(pl.LightningModule):
         return self.energy_loss(x, z)
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.kwargs['lr'])
+        return torch.optim.AdamW(self.parameters(), lr=self.kwargs['lr'], weight_decay=lam)
 
     def training_step(self, batch, batch_idx):
 
@@ -199,7 +211,6 @@ class MutualInformationEstimator(pl.LightningModule):
         self.avg_test_mi = avg_mi
         return {'avg_test_mi': avg_mi, 'log': tensorboard_logs}
 
-    @pl.data_loader
     def train_dataloader(self):
         if self.train_loader:
             return self.train_loader
@@ -210,7 +221,6 @@ class MutualInformationEstimator(pl.LightningModule):
             batch_size=self.kwargs['batch_size'], shuffle=True)
         return train_loader
 
-    @pl.data_loader
     def test_dataloader(self):
         if self.test_loader:
             return self.train_loader

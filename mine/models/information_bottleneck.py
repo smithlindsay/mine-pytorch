@@ -22,21 +22,14 @@ def batch_accuracy(y_pred, y_true):
 
 
 class IBNetwork(pl.LightningModule):
-    def __init__(self,
-                 input_dim,
-                 K,
-                 output_dim,
-                 mi_estimator,
-                 lr,
-                 beta=1.0):
-
+    def __init__(self, input_dim, K, output_dim, mi_estimator, lr, beta=1.0):
         super().__init__()
         self.layers = nn.Sequential(
             nn.Linear(input_dim, 1024),
             nn.ReLU(),
             nn.Linear(1024, 1024),
             nn.ReLU(),
-            nn.Linear(1024, 2 * K)
+            nn.Linear(1024, 2 * K),
         )
 
         self.decoder = nn.Linear(K, output_dim)
@@ -69,7 +62,9 @@ class IBNetwork(pl.LightningModule):
 
     def configure_optimizers(self):
         opt_ib = torch.optim.Adam(
-            itertools.chain(self.parameters(), self.mi_estimator.parameters()), lr=self.lr)
+            itertools.chain(self.parameters(), self.mi_estimator.parameters()),
+            lr=self.lr,
+        )
         return opt_ib
 
     def loss_fn(self, img, label):
@@ -96,24 +91,19 @@ class IBNetwork(pl.LightningModule):
         accuracy, misclass_rate = self.get_stats(decoded, label)
 
         tensorboard_logs = {
-            'loss': loss,
-            'train_accuracy': accuracy,
-            'train_error_rate': misclass_rate
+            "loss": loss,
+            "train_accuracy": accuracy,
+            "train_error_rate": misclass_rate,
         }
 
-        tqdm_dict = {'accuracy': accuracy, 'error_rate': misclass_rate}
+        tqdm_dict = {"accuracy": accuracy, "error_rate": misclass_rate}
 
-        return {
-            **tensorboard_logs,
-            'log': tensorboard_logs,
-            'progress_bar': tqdm_dict
-        }
+        return {**tensorboard_logs, "log": tensorboard_logs, "progress_bar": tqdm_dict}
 
     def get_stats(self, decoded, labels):
         preds = torch.argmax(decoded, 1).cpu().detach().numpy()
         accuracy = batch_accuracy(preds, labels.cpu().detach().numpy())
-        misclass_rate = batch_misclass_rate(
-            preds, labels.cpu().detach().numpy())
+        misclass_rate = batch_misclass_rate(preds, labels.cpu().detach().numpy())
 
         return accuracy, misclass_rate
 
@@ -122,45 +112,51 @@ class IBNetwork(pl.LightningModule):
         decoded, loss = self.loss_fn(x, y)
         accuracy, misclass_rate = self.get_stats(decoded, y)
 
-        tensorboard_logs = {'val_loss': loss,
-                            'val_accuracy': accuracy,
-                            'val_error_rate': misclass_rate}
-
-        tqdm_dict = {
-            'val_accuracy': accuracy
+        tensorboard_logs = {
+            "val_loss": loss,
+            "val_accuracy": accuracy,
+            "val_error_rate": misclass_rate,
         }
 
-        return {**tensorboard_logs, 'log': tensorboard_logs, 'progress_bar': tqdm_dict}
+        tqdm_dict = {"val_accuracy": accuracy}
+
+        return {**tensorboard_logs, "log": tensorboard_logs, "progress_bar": tqdm_dict}
 
     def validation_end(self, outputs):
-        avg_acc = np.stack([x['val_accuracy'] for x in outputs]).mean()
-        avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
-        tensorboard_logs = {'val_accuracy': avg_acc, 'val_loss': avg_loss}
-        return {'avg_val_loss': avg_loss, 'avg_val_accuracy': avg_acc, 'log': tensorboard_logs}
+        avg_acc = np.stack([x["val_accuracy"] for x in outputs]).mean()
+        avg_loss = torch.stack([x["val_loss"] for x in outputs]).mean()
+        tensorboard_logs = {"val_accuracy": avg_acc, "val_loss": avg_loss}
+        return {
+            "avg_val_loss": avg_loss,
+            "avg_val_accuracy": avg_acc,
+            "log": tensorboard_logs,
+        }
 
     def test_step(self, batch, batch_idx):
         x, y = batch
         decoded, loss = self.loss_fn(x, y)
         accuracy, misclass_rate = self.get_stats(decoded, y)
 
-        tensorboard_logs = {'test_loss': loss,
-                            'test_accuracy': accuracy,
-                            'test_error_rate': misclass_rate}
+        tensorboard_logs = {
+            "test_loss": loss,
+            "test_accuracy": accuracy,
+            "test_error_rate": misclass_rate,
+        }
 
-        return {**tensorboard_logs, 'log': tensorboard_logs}
+        return {**tensorboard_logs, "log": tensorboard_logs}
 
     def test_end(self, outputs):
-        avg_acc = np.stack([x['test_accuracy'] for x in outputs]).mean()
-        tensorboard_logs = {'test_accuracy': avg_acc}
-        return {'avg_test_accuracy': avg_acc, 'log': tensorboard_logs}
+        avg_acc = np.stack([x["test_accuracy"] for x in outputs]).mean()
+        tensorboard_logs = {"test_accuracy": avg_acc}
+        return {"avg_test_accuracy": avg_acc, "log": tensorboard_logs}
 
     @pl.data_loader
     def train_dataloader(self):
-        return load_dataloader('mnist', 256, train=True)
+        return load_dataloader("mnist", 256, train=True)
 
     @pl.data_loader
     def val_dataloader(self):
-        return load_dataloader('mnist', 256, train=False)
+        return load_dataloader("mnist", 256, train=False)
 
 
 class GaussianLayer(nn.Module):
@@ -192,7 +188,7 @@ class StatisticsNetwork(nn.Module):
 
 
 class TishbyNet(nn.Module):
-    def __init__(self, input_dim, output_dim, activation='tanh', device='cpu'):
+    def __init__(self, input_dim, output_dim, activation="tanh", device="cpu"):
         super().__init__()
         self.device = device
 
@@ -208,9 +204,9 @@ class TishbyNet(nn.Module):
         self.softmax = nn.Softmax()
 
     def non_linear(self, x):
-        if self.activation == 'tanh':
+        if self.activation == "tanh":
             return torch.tanh(x)
-        elif self.activation == 'relu':
+        elif self.activation == "relu":
             return F.relu(x)
         else:
             raise NotImplementedError
@@ -234,7 +230,6 @@ class TishbyNet(nn.Module):
         layer_outputs[-1] = F.softmax(layer_outputs[-1])
         to_return = dict()
         for layer_id, layer_output in enumerate(layer_outputs):
-
             _, layer_dim = layer_output.shape
 
             statistics_network = nn.Sequential(
@@ -242,12 +237,13 @@ class TishbyNet(nn.Module):
                 nn.ReLU(),
                 nn.Linear(400, 400),
                 nn.ReLU(),
-                nn.Linear(400, 1)
+                nn.Linear(400, 1),
             )
 
             mi_estimator = Mine(T=statistics_network).to(self.device)
             mi = mi_estimator.optimize(
-                target, layer_output.detach(), iters=iters, batch_size=n // 1, opt=None)
+                target, layer_output.detach(), iters=iters, batch_size=n // 1, opt=None
+            )
 
             to_return[layer_id] = mi.item()
         return to_return
@@ -272,8 +268,7 @@ def generate_samples(n_samples):
 
     for i in range(n_samples):
         random_int = random.randint(0, 1023)
-        x_data[i, :] = [int(b)
-                        for b in list("{0:b}".format(random_int).zfill(10))]
+        x_data[i, :] = [int(b) for b in list("{0:b}".format(random_int).zfill(10))]
         x_int[i] = random_int
         y_data[i, 0] = groups[random_int % 16]
         y_data[i, 1] = 1 - y_data[i, 0]
@@ -286,21 +281,28 @@ def main(device):
     K = 256
     beta = 1e-3
     lr = 1e-3
-    x_dim = 28*28
+    x_dim = 28 * 28
     z_dim = K
 
-    num_gpus = 1 if device == 'cuda' else 0
+    num_gpus = 1 if device == "cuda" else 0
 
     t = StatisticsNetwork(x_dim, z_dim, device=device).to(device)
-    mi_estimator = Mine(t, loss='mine').to(device)
-    ibnetwork = IBNetwork(input_dim=28*28, K=K, output_dim=10,
-                          mi_estimator=mi_estimator, lr=lr, beta=beta).to(device)
+    mi_estimator = Mine(t, loss="mine").to(device)
+    ibnetwork = IBNetwork(
+        input_dim=28 * 28,
+        K=K,
+        output_dim=10,
+        mi_estimator=mi_estimator,
+        lr=lr,
+        beta=beta,
+    ).to(device)
 
-    trainer = Trainer(amp_level='02', max_epochs=epochs,
-                      gpus=num_gpus, early_stop_callback=True)
+    trainer = Trainer(
+        amp_level="02", max_epochs=epochs, gpus=num_gpus, early_stop_callback=True
+    )
     trainer.fit(ibnetwork)
 
 
-if __name__ == '__main__':
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+if __name__ == "__main__":
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     main(device)

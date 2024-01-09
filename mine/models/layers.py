@@ -1,4 +1,3 @@
-
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -27,8 +26,13 @@ class ConvBlock(nn.Module):
     def __init__(self, in_features, out_features, kernel_size, stride, padding):
         super().__init__()
         self.block = nn.Sequential(
-            nn.Conv2d(in_features, out_features,
-                      kernel_size=kernel_size, stride=stride, padding=padding),
+            nn.Conv2d(
+                in_features,
+                out_features,
+                kernel_size=kernel_size,
+                stride=stride,
+                padding=padding,
+            ),
             nn.BatchNorm2d(out_features),
             nn.ReLU(),
         )
@@ -60,7 +64,6 @@ class MNISTClassifier(nn.Module):
 
 
 class LinearGenerator(nn.Module):
-
     def __init__(self, input_dim, output_dim):
         super().__init__()
         self.layers = nn.Sequential(
@@ -70,7 +73,8 @@ class LinearGenerator(nn.Module):
             nn.Linear(500, 500),
             nn.LeakyReLU(),
             nn.BatchNorm1d(500),
-            nn.Linear(500, output_dim))
+            nn.Linear(500, output_dim),
+        )
 
     def forward(self, x):
         return self.layers(x)
@@ -87,12 +91,13 @@ class LinearDiscriminator(nn.Module):
             nn.Linear(400, 400),
             nn.LeakyReLU(),
             nn.Linear(400, 1),
-            nn.Sigmoid())
+            nn.Sigmoid(),
+        )
 
         self.input_dim = input_dim
 
     def forward(self, x):
-        if(len(x.shape) != 2):
+        if len(x.shape) != 2:
             x = x.view(x.shape[0], -1)
 
         return self.layers(x)
@@ -103,13 +108,13 @@ class DCGanGenerator(nn.Module):
         super().__init__()
         self.fc1 = nn.Linear(latent_dim, 2 * 2 * 512)
         self.conv1 = nn.ConvTranspose2d(
-            512, 256, kernel_size=5, stride=1, padding=1, output_padding=0)
-        self.conv2 = nn.ConvTranspose2d(
-            256, 128, kernel_size=4, stride=2, padding=1)
+            512, 256, kernel_size=5, stride=1, padding=1, output_padding=0
+        )
+        self.conv2 = nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1)
         self.conv3 = nn.ConvTranspose2d(
-            128, 64, kernel_size=4, stride=2, padding=1, output_padding=0)
-        self.conv4 = nn.ConvTranspose2d(
-            64, 3, kernel_size=5, stride=2, padding=3)
+            128, 64, kernel_size=4, stride=2, padding=1, output_padding=0
+        )
+        self.conv4 = nn.ConvTranspose2d(64, 3, kernel_size=5, stride=2, padding=3)
 
     def forward(self, input):
         x = self.fc1(input)
@@ -147,12 +152,9 @@ class DCGanDiscriminator(nn.Module):
 class ConvolutionalStatisticsNetwork(nn.Module):
     def __init__(self, z_dim):
         super().__init__()
-        self.conv1 = nn.Conv2d(3, 16, kernel_size=5,
-                               stride=2, padding=2, bias=False)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=5,
-                               stride=2, padding=2, bias=False)
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=5,
-                               stride=2, padding=2, bias=False)
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=5, stride=2, padding=2, bias=False)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=5, stride=2, padding=2, bias=False)
+        self.conv3 = nn.Conv2d(32, 64, kernel_size=5, stride=2, padding=2, bias=False)
 
         self.fc1 = nn.Linear(4 * 4 * 64, 1)
 
