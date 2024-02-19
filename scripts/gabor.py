@@ -9,9 +9,10 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from math import ceil
 import sys
+from skimage.filters import gabor_kernel
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-# device = 'cpu'
+
 print(device)
 
 image_dim = 224
@@ -35,19 +36,32 @@ dataset = torchvision.datasets.ImageFolder(
     transform=transform
 )
 
-dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
-x_dim = 224 * 224 * 3
-y_dim = 1
+dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True)
 
-mask_size = 4
-weights = torch.zeros((image_dim, image_dim))
-for i in range(0, image_dim, mask_size):
-    for j in range(0, image_dim, mask_size):
-        if (i // mask_size + j // mask_size) % 2 == 1:
-            weights[i:i+mask_size, j:j+mask_size] = 3
+image_dim = 224
+frequency = 0.006
+theta = 0.0
+kernel = gabor_kernel(frequency, theta=theta)
 
+input_height, input_width = kernel.shape
+
+kernel = gabor_kernel(frequency, theta=theta)
+
+# Calculate cropping boundaries
+crop_top = (input_height - image_dim) // 2
+crop_bottom = crop_top + image_dim
+crop_left = (input_width - image_dim) // 2
+crop_right = crop_left + image_dim
+
+# Perform the crop
+weights = np.real(kernel)[crop_top:crop_bottom, crop_left:crop_right]
+
+# scale weights
+weights = scale_rgb(weights)
+
+# repeat the weights for each channel and flatten
+weights = torch.tensor(weights, dtype=torch.float32)
 flat_weights = np.repeat(weights.unsqueeze(0), 3, axis=0).view(1, -1)
-flat_weights.shape
 
 # pass images through toy_network to get activations
 class Toynetwork(nn.Module):
@@ -76,6 +90,7 @@ def get_activation(name):
 hook = toy_net.fc1.register_forward_hook(get_activation('fc1'))
 
 inputs_list = []
+# outputs_list = []
 act_list = []
 
 for inputs, _ in tqdm(dataloader):
@@ -88,8 +103,8 @@ for inputs, _ in tqdm(dataloader):
         # collect the activations
         act_list.append(activation['fc1'])
 
-        inputs = inputs.detach().cpu().numpy()
-        inputs_list.append(inputs)
+        inputs_list.append(inputs.detach().cpu().numpy())
+        # outputs_list.append(output.detach().cpu().numpy())
 
     del inputs
     del output
@@ -98,27 +113,29 @@ for inputs, _ in tqdm(dataloader):
 hook.remove()
 
 act_length = (len(act_list) - 1)*batch_size + len(act_list[len(act_list)-1])
-act_length, len(act_list), act_list[0].shape, inputs_list[0].shape, inputs_list[-1].shape
 
 samples = (len(inputs_list) - 1)*batch_size + len(inputs_list[len(inputs_list)-1])
-images_flat = np.zeros((samples, 224*224*3))
+images_flat = np.zeros((samples, (224)*(224)*3))
 responses = np.zeros((act_length, 1))
-x_dim=224*224*3
+# outputs = np.zeros((act_length, 1))
+x_dim=(224)*(224)*3
 y_dim=1
 
 for batch in range(len(act_list)):
     for image in range(len(act_list[batch])):
         responses[batch*len(act_list[0])+image, 0] = act_list[batch][image, 0]
+        # outputs[batch*len(act_list[0])+image, 0] = outputs_list[batch][image, 0]
         images_flat[batch*len(act_list[0])+image, :] = inputs_list[batch][image]
 
+# del act_list, inputs_list, outputs_list
 del act_list, inputs_list
 
 class Image_network(nn.Module):
     def __init__(self, x_dim, y_dim):
         super().__init__()
-        self.fc1x = nn.Linear(x_dim, 2, bias=False)
-        self.fc1y = nn.Linear(y_dim, 2, bias=False)
-        self.fc2 = nn.Linear(4, 100, bias=False)
+        self.fc1x = nn.Linear(x_dim, 1, bias=False)
+        self.fc1y = nn.Linear(y_dim, 1, bias=False)
+        self.fc2 = nn.Linear(2, 100, bias=False)
         self.fc3 = nn.Linear(100, 1, bias=False)
 
     def forward(self, x, y):
@@ -136,18 +153,18 @@ mine = Mine(
     T=Image_network(x_dim, y_dim),
     loss="mine",  # mine_biased, fdiv
     device=device).to(device)
-mi, loss_log = mine.optimize(torch.tensor(images_flat, dtype=torch.float32), torch.tensor(responses, dtype=torch.float32), 1000, batch_size, lam)
+mi, loss_list = mine.optimize(torch.tensor(images_flat, dtype=torch.float32), torch.tensor(responses, dtype=torch.float32), 250, batch_size, lam)
 
-torch.save(mine.T, "minecheckfull" + lam_str + ".pth")
-np.save("micheckfull" + lam_str + ".npy", mi.detach().cpu().numpy())
-np.save("losscheckfull" + lam_str + ".npy", torch.stack(loss_log).detach().cpu().numpy())
+torch.save(mine.T, "minegaborfull" + lam_str + ".pth")
+np.save("migaborfull" + lam_str + ".npy", mi.detach().cpu().numpy())
+np.save("lossgaborfull" + lam_str + ".npy", torch.stack(loss_list).detach().cpu().numpy())
 
 plt.figure()
-plt.plot(torch.stack(loss_log).detach().cpu().numpy())
-plt.title("checkfull loss: 1000 epochs, lambda=" + lam_str)
+plt.plot(torch.stack(loss_list).detach().cpu().numpy())
+plt.title("gaborfull loss: 250 epochs, lambda=" + lam_str)
 plt.ylabel("loss")
 plt.xlabel("batches")
-plt.savefig("losscheckfull" + lam_str+".pdf")
+plt.savefig("lossgaborfull" + lam_str+".pdf")
 
 Tweights = mine.T.fc1x.weight.detach().cpu().numpy()[0]
 
@@ -160,8 +177,8 @@ for i in range(3):
     ax = plt.gca()
     ax.set_aspect("equal")
     plt.colorbar()
-    plt.title(f"checkfull, lambda={lam_str}, channel {i}")
-    plt.savefig(f"Tweightsc{i}{lam_str}checkfull.pdf")
+    plt.title(f"gaborfull, lambda={lam_str}, channel {i}")
+    plt.savefig(f"Tweightsc{i}{lam_str}gaborfull.pdf")
 
 plt.figure()
 plt.pcolormesh(
@@ -169,7 +186,7 @@ plt.pcolormesh(
     edgecolors="k",
     linewidth=0.005,
 )
-plt.title(f"checkfull, lambda={lam_str}, combined channels")
+plt.title(f"gaborfull, lambda={lam_str}, combined channels")
 ax = plt.gca()
 ax.set_aspect("equal")
-plt.savefig("Tweightscomb" + lam_str + "checkfull.pdf")
+plt.savefig("Tweightscomb" + lam_str + "gaborfull.pdf")

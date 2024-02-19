@@ -1,0 +1,16 @@
+  0%|          | 0/100 [00:00<?, ?it/s]  1%|          | 1/100 [00:04<06:40,  4.04s/it]  7%|▋         | 7/100 [00:04<00:41,  2.25it/s] 10%|█         | 10/100 [00:07<01:01,  1.46it/s] 12%|█▏        | 12/100 [00:07<00:45,  1.94it/s] 14%|█▍        | 14/100 [00:07<00:35,  2.43it/s] 17%|█▋        | 17/100 [00:10<00:51,  1.61it/s] 18%|█▊        | 18/100 [00:11<00:48,  1.68it/s] 25%|██▌       | 25/100 [00:14<00:36,  2.05it/s] 26%|██▌       | 26/100 [00:14<00:35,  2.06it/s] 30%|███       | 30/100 [00:14<00:21,  3.24it/s] 33%|███▎      | 33/100 [00:17<00:33,  2.02it/s] 35%|███▌      | 35/100 [00:17<00:28,  2.30it/s] 38%|███▊      | 38/100 [00:18<00:19,  3.14it/s] 41%|████      | 41/100 [00:20<00:30,  1.95it/s] 42%|████▏     | 42/100 [00:21<00:30,  1.92it/s] 46%|████▌     | 46/100 [00:21<00:17,  3.09it/s] 49%|████▉     | 49/100 [00:24<00:26,  1.95it/s] 50%|█████     | 50/100 [00:25<00:27,  1.80it/s] 57%|█████▋    | 57/100 [00:27<00:19,  2.26it/s] 58%|█████▊    | 58/100 [00:28<00:20,  2.03it/s] 65%|██████▌   | 65/100 [00:31<00:14,  2.44it/s] 66%|██████▌   | 66/100 [00:32<00:16,  2.10it/s] 73%|███████▎  | 73/100 [00:34<00:11,  2.35it/s] 74%|███████▍  | 74/100 [00:35<00:12,  2.14it/s] 81%|████████  | 81/100 [00:38<00:07,  2.38it/s] 82%|████████▏ | 82/100 [00:39<00:08,  2.18it/s] 89%|████████▉ | 89/100 [00:41<00:04,  2.39it/s] 90%|█████████ | 90/100 [00:42<00:04,  2.25it/s] 97%|█████████▋| 97/100 [00:44<00:01,  2.49it/s] 98%|█████████▊| 98/100 [00:45<00:00,  2.29it/s]100%|██████████| 100/100 [00:45<00:00,  2.18it/s]
+run 0
+  0%|          | 0/250 [00:00<?, ?it/s]/scratch/network/ls1546/.conda/main/lib/python3.10/site-packages/torch/autograd/__init__.py:251: UserWarning: Error detected in EMALossBackward. Traceback of forward call that caused the error:
+  File "/scratch/network/ls1546/mine-pytorch/scripts/gabor_tryexcept.py", line 155, in <module>
+    mi, loss_list = mine.optimize(torch.tensor(images_flat, dtype=torch.float32), torch.tensor(responses, dtype=torch.float32), epochs, batch_size, lam, run_name)
+  File "/scratch/network/ls1546/mine-pytorch/mine/models/mine.py", line 134, in optimize
+    loss = self.forward(x, y)
+  File "/scratch/network/ls1546/mine-pytorch/mine/models/mine.py", line 97, in forward
+    second_term, self.running_mean = ema_loss(
+  File "/scratch/network/ls1546/mine-pytorch/mine/models/mine.py", line 61, in ema_loss
+    t_log = EMALoss.apply(x, running_mean)
+  File "/scratch/network/ls1546/.conda/main/lib/python3.10/site-packages/torch/autograd/function.py", line 539, in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+ (Triggered internally at ../torch/csrc/autograd/python_anomaly_mode.cpp:114.)
+  Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+slurmstepd: error: *** JOB 2009410 ON adroit-h11g1 CANCELLED AT 2024-02-19T11:40:55 ***

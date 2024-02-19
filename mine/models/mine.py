@@ -25,9 +25,7 @@ torch.autograd.set_detect_anomaly(True)
 EPS = 1e-6
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-#device = 'cpu'
-print("Device:", device)
-
+datadir = "/scratch/network/ls1546/mine-pytorch/data/"
 
 class EMALoss(torch.autograd.Function):
     @staticmethod
@@ -40,6 +38,9 @@ class EMALoss(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         input, running_mean = ctx.saved_tensors
+        # print("input nan/inf: ", torch.sum(torch.isfinite(input)))
+        # print("run mean: ", running_mean)
+        # print("grad_output: ", grad_output)
         grad = grad_output * input.exp().detach() / \
             (running_mean + EPS) / input.shape[0]
         return grad, None
@@ -51,11 +52,12 @@ def ema(mu, alpha, past_ema):
 
 def ema_loss(x, running_mean, alpha):
     t_exp = torch.exp(torch.logsumexp(x, 0) - math.log(x.shape[0])).detach()
-    print(running_mean)
+    # print(running_mean)
     if running_mean == 0:
         running_mean = t_exp
     else:
         running_mean = ema(t_exp, alpha, running_mean.item())
+    
     t_log = EMALoss.apply(x, running_mean)
 
     # Recalculate ema
@@ -112,31 +114,74 @@ class Mine(nn.Module):
             mi = -self.forward(x, z, z_marg)
         return mi
 
-    def optimize(self, X, Y, epochs, batch_size, lam, opt=None):
+    def optimize(self, X, Y, epochs, batch_size, lam, name, opt=None):
+        threshold = 10.0
+        best_loss = np.inf
+        count = 0
+        batch_num = 0
+
         if opt is None:
             opt = torch.optim.AdamW(self.parameters(), lr=1e-4, weight_decay=lam)
-        loss_log = []
+        loss_list = []
         for epoch in (pbar := tqdm(range(1, epochs + 1))):
             mu_mi = 0
             for x, y in utils.batch(X, Y, batch_size):
-                x, y = x.to(self.device), y.to(self.device)
-                opt.zero_grad()
-                loss = self.forward(x, y)
-                loss_log.append(loss)
-                loss.backward()
-                opt.step()
+                if batch_num == 0:
+                    try:
+                        x, y = x.to(self.device), y.to(self.device)
+                        # print(x.shape)
+                        opt.zero_grad()
+                        loss = self.forward(x, y)
+                        loss_list.append(loss)
+                        loss.backward()
+                        opt.step()
 
-                mu_mi -= loss.item()
+                        mu_mi -= loss.item()
+                    except:
+                        print("NAN/INF")
+                        # np.save(f"{datadir}{name}_batchx{batch_num}.npy", x.detach().cpu().numpy())
+                        # np.save(f"{datadir}{name}_batchy{batch_num}.npy", y.detach().cpu().numpy())
+                        continue
+                else:
+                    x, y = x.to(self.device), y.to(self.device)
+                    # print(x.shape)
+                    opt.zero_grad()
+                    loss = self.forward(x, y)
+                    loss_list.append(loss)
+                    loss.backward()
+                    opt.step()
+
+                    mu_mi -= loss.item()
+                batch_num += 1
 
             pbar.set_description(f"epoch: {epoch}, mu_mi: {mu_mi:4f}")
-            
-            # if epoch % (epochs // 3) == 0:
-                # pass
-                # print(f"It {iter} - MI: {mu_mi / batch_size}")
+            curr_loss = loss_list[epoch].detach().cpu().numpy()
+
+            # checkpoint the model if loss below threshold, save best model and avg checkpointed model
+            if curr_loss < threshold:
+                if curr_loss < best_loss:
+                    best_loss = curr_loss
+                    torch.save(self.T, f"{datadir}{name}_best_mine.pth")
+                    np.save(f"{datadir}{name}_best_loss.npy", best_loss)
+                
+                torch.save(self.T, f"{datadir}{name}_ckpt_mine{count}.pth")
+                count += 1
 
         final_mi = self.mi(X, Y)
         print(f"Final MI: {final_mi}")
-        return final_mi, loss_log
+
+        # Average the weights of the checkpointed models
+        for i in range(count):
+            model = torch.load(f"{datadir}{name}_ckpt_mine{i}.pth")
+            weights = model.fc1x.weight.detach().cpu().numpy()[0]
+            if i == 0:
+                avg_weights = weights
+            avg_weights = avg_weights + weights
+        avg_weights = avg_weights / count
+        # model.fc1x.weight = nn.Parameter(torch.tensor(avg_weights))
+        np.save(f"{datadir}avg_weights_{name}.npy", avg_weights)
+
+        return final_mi, loss_list
 
 
 class T(nn.Module):
