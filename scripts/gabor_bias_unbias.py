@@ -11,24 +11,27 @@ from math import ceil
 import sys
 from skimage.filters import gabor_kernel
 
+# params
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-print(device)
-
-image_dim = 224
+runs = np.arange(0, 2)
+# for AdamW
+lam = 0.005
+# crop images to image_dim x image_dim
+image_dim = 224//5
+run_name = "gabor_bias_unbias"
+epochs = 250
 
 def scale_rgb(x):
     return (x - x.min()) / (x.max() - x.min())
 
 transform = transforms.Compose([
     transforms.Resize(256),
-    transforms.CenterCrop(image_dim),
+    transforms.CenterCrop((224//5)),
     transforms.ToTensor(),
     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ])
 
 batch_size = 1000
-
 
 # USE 100K TEST DATA
 dataset = torchvision.datasets.ImageFolder(
@@ -43,8 +46,6 @@ theta = 0.0
 kernel = gabor_kernel(frequency, theta=theta)
 
 input_height, input_width = kernel.shape
-
-kernel = gabor_kernel(frequency, theta=theta)
 
 # Calculate cropping boundaries
 crop_top = (input_height - image_dim) // 2
@@ -112,12 +113,11 @@ for inputs, _ in tqdm(dataloader):
 hook.remove()
 
 act_length = (len(act_list) - 1)*batch_size + len(act_list[len(act_list)-1])
-
 samples = (len(inputs_list) - 1)*batch_size + len(inputs_list[len(inputs_list)-1])
-images_flat = np.zeros((samples, (image_dim)*(image_dim)*3))
+images_flat = np.zeros((samples, ((224//5))*((224//5))*3))
 responses = np.zeros((act_length, 1))
 # outputs = np.zeros((act_length, 1))
-x_dim=(image_dim)*(image_dim)*3
+x_dim=((224//5))*((224//5))*3
 y_dim=1
 
 for batch in range(len(act_list)):
@@ -144,48 +144,56 @@ class Image_network(nn.Module):
         h = F.relu(self.fc2(h))
         h = self.fc3(h)
         return h
+    
+for i in runs:
+    if i == 0:
+        run_name = "gabor_bias"
+        mine = Mine(
+            T=Image_network(x_dim, y_dim),
+            loss="mine_biased",  # mine_biased, fdiv
+            device=device).to(device)
+    if i == 1:
+        run_name = "gabor_unbias"
+        mine = Mine(
+        T=Image_network(x_dim, y_dim),
+        loss="mine",  # mine_biased, fdiv
+        device=device).to(device)
+    
+    print(f"run {i}")
+    mi, loss_list = mine.optimize(torch.tensor(images_flat, dtype=torch.float32), torch.tensor(responses, dtype=torch.float32), epochs, batch_size, lam, run_name)
 
-lam = 0.005
-lam_str = str(lam)
+    torch.save(mine.T, f"{run_name}mine.pth")
+    np.save(f"{run_name}mi.npy", mi.detach().cpu().numpy())
+    np.save(f"{run_name}loss.npy", torch.stack(loss_list).detach().cpu().numpy())
 
-mine = Mine(
-    T=Image_network(x_dim, y_dim),
-    loss="mine",  # mine_biased, fdiv
-    device=device).to(device)
-mi, loss_list = mine.optimize(torch.tensor(images_flat, dtype=torch.float32), torch.tensor(responses, dtype=torch.float32), 250, batch_size, lam)
-
-torch.save(mine.T, "minegaborfull" + lam_str + ".pth")
-np.save("migaborfull" + lam_str + ".npy", mi.detach().cpu().numpy())
-np.save("lossgaborfull" + lam_str + ".npy", torch.stack(loss_list).detach().cpu().numpy())
-
-plt.figure()
-plt.plot(torch.stack(loss_list).detach().cpu().numpy())
-plt.title("gaborfull loss: 250 epochs, lambda=" + lam_str)
-plt.ylabel("loss")
-plt.xlabel("batches")
-plt.savefig("lossgaborfull" + lam_str+".pdf")
-
-Tweights = mine.T.fc1x.weight.detach().cpu().numpy()[0]
-
-unflat_Tweights = np.reshape(Tweights, (3, image_dim, image_dim))
-
-for i in range(3):
-    plt.clf()
     plt.figure()
-    plt.pcolormesh(scale_rgb(unflat_Tweights[i]), edgecolors="k", linewidth=0.005)
+    plt.plot(torch.stack(loss_list).detach().cpu().numpy())
+    plt.title(f"loss: {run_name}, {epochs} epochs, lambda={lam}")
+    plt.ylabel("loss")
+    plt.xlabel("batches")
+    plt.savefig(f"{run_name}loss.pdf")
+
+    Tweights = mine.T.fc1x.weight.detach().cpu().numpy()[0]
+
+    unflat_Tweights = np.reshape(Tweights, (3, (224//5), (224//5)))
+
+    for i in range(3):
+        plt.clf()
+        plt.figure()
+        plt.pcolormesh(scale_rgb(unflat_Tweights[i]), edgecolors="k", linewidth=0.005)
+        ax = plt.gca()
+        ax.set_aspect("equal")
+        plt.colorbar()
+        plt.title(f"{run_name}, lambda={lam}, channel {i}")
+        plt.savefig(f"{run_name}Tweightsc{i}.pdf")
+
+    plt.figure()
+    plt.pcolormesh(
+        np.transpose(np.array(list(map(scale_rgb, unflat_Tweights))), (1, 2, 0)),
+        edgecolors="k",
+        linewidth=0.005,
+    )
+    plt.title(f"{run_name}, lambda={lam}, combined channels")
     ax = plt.gca()
     ax.set_aspect("equal")
-    plt.colorbar()
-    plt.title(f"gaborfull, lambda={lam_str}, channel {i}")
-    plt.savefig(f"Tweightsc{i}{lam_str}gaborfull.pdf")
-
-plt.figure()
-plt.pcolormesh(
-    np.transpose(np.array(list(map(scale_rgb, unflat_Tweights))), (1, 2, 0)),
-    edgecolors="k",
-    linewidth=0.005,
-)
-plt.title(f"gaborfull, lambda={lam_str}, combined channels")
-ax = plt.gca()
-ax.set_aspect("equal")
-plt.savefig("Tweightscomb" + lam_str + "gaborfull.pdf")
+    plt.savefig(f"{run_name}Tweightscomb.pdf")

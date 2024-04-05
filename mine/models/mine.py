@@ -51,7 +51,7 @@ def ema(mu, alpha, past_ema):
 
 
 def ema_loss(x, running_mean, alpha):
-    t_exp = torch.exp(torch.logsumexp(x, 0) - math.log(x.shape[0])).detach()
+    t_exp = torch.sum(torch.exp(x), 0)/x.shape[0].detach()
     # print(running_mean)
     if running_mean == 0:
         running_mean = t_exp

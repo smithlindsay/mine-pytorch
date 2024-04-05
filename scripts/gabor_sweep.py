@@ -129,7 +129,7 @@ for batch in range(len(act_list)):
 # del act_list, inputs_list, outputs_list
 del act_list, inputs_list
 for i in neurons:
-    run_name = f"gabor_sweep_{neurons[i]}"
+    run_name = f"gabor_sweep_{neurons[i-1]}"
     class Image_network(nn.Module):
         def __init__(self, x_dim, y_dim):
             super().__init__()
